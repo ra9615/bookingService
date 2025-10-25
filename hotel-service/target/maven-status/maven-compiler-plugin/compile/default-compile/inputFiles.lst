@@ -1,0 +1,15 @@
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/repository/RoomReservationLockRepository.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/security/SecurityConfig.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/model/RoomReservationLock.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/security/JwtSecretKeyProvider.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/web/RoomController.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/web/StatsController.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/repository/RoomRepository.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/repository/HotelRepository.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/model/Room.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/config/OpenApiConfig.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/web/CorrelationFilter.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/HotelServiceApplication.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/model/Hotel.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/service/HotelService.java
+/Users/aleksandrrastorguev/Desktop/SmartLodge-main/hotel-service/src/main/java/com/example/hotel/web/HotelController.java
