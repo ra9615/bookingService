@@ -1,5 +1,6 @@
 package com.example.booking;
 
+import com.example.booking.dto.CreateBookingRequestDto;
 import com.example.booking.model.Booking;
 import com.example.booking.repository.BookingRepository;
 import com.example.booking.service.BookingService;
@@ -57,7 +58,8 @@ public class BookingTests {
         stubFor(post(urlPathMatching("/rooms/\\d+/hold")).willReturn(okJson("{}")));
         stubFor(post(urlPathMatching("/rooms/\\d+/confirm")).willReturn(okJson("{}")));
 
-        Booking booking = bookingService.create(1L, 10L, LocalDate.now(), LocalDate.now().plusDays(1), "r1");
+        CreateBookingRequestDto requestDto = new CreateBookingRequestDto(10L, LocalDate.now(), LocalDate.now().plusDays(1), "r1");
+        Booking booking = bookingService.create(1L, requestDto);
         Assertions.assertEquals(Booking.Status.CONFIRMED, booking.getStatus());
     }
 
@@ -66,7 +68,9 @@ public class BookingTests {
         stubFor(post(urlPathMatching("/rooms/\\d+/hold")).willReturn(serverError()));
         stubFor(post(urlPathMatching("/rooms/\\d+/release")).willReturn(okJson("{}")));
 
-        Booking booking = bookingService.create(2L, 11L, LocalDate.now(), LocalDate.now().plusDays(1), "r2");
+        CreateBookingRequestDto requestDto = new CreateBookingRequestDto(11L, LocalDate.now(), LocalDate.now().plusDays(1), "r2");
+
+        Booking booking = bookingService.create(2L, requestDto);
         Assertions.assertEquals(Booking.Status.CANCELLED, booking.getStatus());
     }
 
@@ -76,7 +80,9 @@ public class BookingTests {
                 .willReturn(aResponse().withFixedDelay(2000).withStatus(200)));
         stubFor(post(urlPathMatching("/rooms/\\d+/release")).willReturn(okJson("{}")));
 
-        Booking booking = bookingService.create(3L, 12L, LocalDate.now(), LocalDate.now().plusDays(1), "r3");
+        CreateBookingRequestDto requestDto = new CreateBookingRequestDto(12L, LocalDate.now(), LocalDate.now().plusDays(1), "r3");
+
+        Booking booking = bookingService.create(3L, requestDto);
         Assertions.assertEquals(Booking.Status.CANCELLED, booking.getStatus());
     }
 
@@ -85,8 +91,11 @@ public class BookingTests {
         stubFor(post(urlPathMatching("/rooms/\\d+/hold")).willReturn(okJson("{}")));
         stubFor(post(urlPathMatching("/rooms/\\d+/confirm")).willReturn(okJson("{}")));
 
-        Booking firstBooking = bookingService.create(4L, 13L, LocalDate.now(), LocalDate.now().plusDays(1), "r4");
-        Booking secondBooking = bookingService.create(4L, 13L, LocalDate.now(), LocalDate.now().plusDays(1), "r4");
+        CreateBookingRequestDto requestDto = new CreateBookingRequestDto(13L, LocalDate.now(), LocalDate.now().plusDays(1), "r4");
+
+
+        Booking firstBooking = bookingService.create(4L, requestDto);
+        Booking secondBooking = bookingService.create(4L, requestDto);
 
         Assertions.assertEquals(firstBooking.getId(), secondBooking.getId());
     }

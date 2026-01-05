@@ -1,5 +1,6 @@
 package com.example.booking.service;
 
+import com.example.booking.dto.CreateBookingRequestDto;
 import com.example.booking.model.Booking;
 import com.example.booking.repository.BookingRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -42,18 +43,19 @@ public class BookingService {
     @Transactional
     public Booking create(
             Long userId,
-            Long roomId,
-            LocalDate from,
-            LocalDate to,
-            String externalRequestId
+            CreateBookingRequestDto request
     ) {
 
-        Optional<Booking> cached = repository.findByRequestId(externalRequestId);
+        Optional<Booking> cached = repository.findByRequestId(request.requestId());
         if (cached.isPresent()) {
             return cached.get();
         }
 
         String traceId = UUID.randomUUID().toString();
+        Long roomId = request.roomId();
+        LocalDate from = request.startDate();
+        LocalDate to = request.endDate();
+        String externalRequestId = request.requestId();
 
         Booking booking = initializeBooking(
                 userId, roomId, from, to, externalRequestId, traceId

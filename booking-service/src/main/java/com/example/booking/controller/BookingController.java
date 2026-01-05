@@ -1,5 +1,6 @@
 package com.example.booking.controller;
 
+import com.example.booking.dto.CreateBookingRequestDto;
 import com.example.booking.model.Booking;
 import com.example.booking.repository.BookingRepository;
 import com.example.booking.service.BookingService;
@@ -24,14 +25,9 @@ public class BookingController {
     private final BookingRepository bookingRepository;
 
     @PostMapping
-    public Booking createBooking(@AuthenticationPrincipal Jwt jwt, @RequestBody Map<String, String> request) {
+    public Booking createBooking(@AuthenticationPrincipal Jwt jwt, @RequestBody CreateBookingRequestDto request) {
         Long userId = Long.valueOf(jwt.getSubject());
-        Long roomId = Long.valueOf(request.get("roomId"));
-        LocalDate startDate = LocalDate.parse(request.get("startDate"));
-        LocalDate endDate = LocalDate.parse(request.get("endDate"));
-        String requestId = request.get("requestId");
-
-        return bookingService.create(userId, roomId, startDate, endDate, requestId);
+        return bookingService.create(userId, request);
     }
 
     @GetMapping
