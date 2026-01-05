@@ -1,5 +1,6 @@
 package com.example.hotel.controller;
 
+import com.example.booking.dto.ConfirmAvailabilityRequestDto;
 import com.example.hotel.model.Room;
 import com.example.hotel.model.RoomReservation;
 import com.example.hotel.service.HotelService;
@@ -8,8 +9,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
 
 @RestController
 @RequestMapping("/rooms")
@@ -53,8 +52,8 @@ public class RoomController {
     }
 
     @PostMapping("/{id}/confirm")
-    public ResponseEntity<RoomReservation> confirmReservation(@PathVariable Long id, @RequestBody Map<String, String> request) {
-        String requestId = request.get("requestId");
+    public ResponseEntity<RoomReservation> confirmReservation(@PathVariable Long id, @RequestBody ConfirmAvailabilityRequestDto request) {
+        String requestId = request.requestId();
         try {
             RoomReservation lock = roomService.confirmReservation(requestId);
             return ResponseEntity.ok(lock);
@@ -64,8 +63,7 @@ public class RoomController {
     }
 
     @PostMapping("/{id}/release")
-    public ResponseEntity<RoomReservation> releaseReservation(@PathVariable Long id, @RequestBody Map<String, String> request) {
-        String requestId = request.get("requestId");
+    public ResponseEntity<RoomReservation> releaseReservation(@PathVariable Long id, @RequestParam("requestId") String requestId) {
         try {
             RoomReservation lock = roomService.release(requestId);
             return ResponseEntity.ok(lock);

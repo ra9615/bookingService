@@ -1,44 +1,29 @@
 package com.example.booking.service;
 
+import com.example.booking.client.HotelClient;
+import com.example.booking.dto.ConfirmAvailabilityRequestDto;
 import com.example.booking.dto.CreateBookingRequestDto;
 import com.example.booking.model.Booking;
 import com.example.booking.repository.BookingRepository;
+import feign.FeignException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
-import reactor.util.retry.Retry;
 
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 @Service
+@RequiredArgsConstructor
 @Slf4j
 public class BookingService {
     private final BookingRepository repository;
-    private final WebClient hotelClient;
-    private final Duration requestTimeout;
-    private final int maxRetries;
-
-    public BookingService(
-            BookingRepository repository,
-            WebClient.Builder clientBuilder,
-            @Value("${hotel.base-url}") String baseUrl,
-            @Value("${hotel.timeout-ms}") long timeoutMs,
-            @Value("${hotel.retries}") int retries
-    ) {
-        this.repository = repository;
-        this.hotelClient = clientBuilder.baseUrl(baseUrl).build();
-        this.requestTimeout = Duration.ofMillis(timeoutMs);
-        this.maxRetries = retries;
-    }
+    private final HotelClient hotelClient;
 
     @Transactional
     public Booking create(
@@ -57,16 +42,23 @@ public class BookingService {
         LocalDate to = request.endDate();
         String externalRequestId = request.requestId();
 
-        Booking booking = initializeBooking(
-                userId, roomId, from, to, externalRequestId, traceId
-        );
+        Booking booking = new Booking();
+        booking.setUserId(userId);
+        booking.setRoomId(roomId);
+        booking.setStartDate(from);
+        booking.setEndDate(to);
+        booking.setRequestId(externalRequestId);
+        booking.setCorrelationId(traceId);
+        booking.setStatus(Booking.Status.PENDING);
+        booking.setCreatedAt(OffsetDateTime.now());
 
-        repository.save(booking);
+        Booking saved = repository.save(booking);
         log.info("[{}] Reservation created with PENDING status", traceId);
 
+        ConfirmAvailabilityRequestDto confirmAvailabilityRequestDto = new ConfirmAvailabilityRequestDto(externalRequestId, from, to);
+
         try {
-            holdRoom(roomId, externalRequestId, from, to, traceId);
-            confirmRoom(roomId, externalRequestId, traceId);
+            confirmRoom(saved);
 
             booking.setStatus(Booking.Status.CONFIRMED);
             repository.save(booking);
@@ -75,7 +67,7 @@ public class BookingService {
         } catch (Exception ex) {
             log.warn("[{}] Reservation failed: {}", traceId, ex.getMessage());
 
-            releaseRoomQuietly(roomId, externalRequestId, traceId);
+            releaseRoom(roomId, confirmAvailabilityRequestDto.requestId());
 
             booking.setStatus(Booking.Status.CANCELLED);
             repository.save(booking);
@@ -97,80 +89,27 @@ public class BookingService {
         return booking;
     }
 
-    private void holdRoom(
-            Long roomId,
-            String requestId,
-            LocalDate from,
-            LocalDate to,
-            String traceId
+    @Retryable(
+            retryFor = {FeignException.class, Exception.class},
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 500, multiplier = 2)
+    )
+    private void confirmRoom(
+            Booking booking
     ) {
-        invokeHotel(
-                "/rooms/" + roomId + "/hold",
-                Map.of(
-                        "requestId", requestId,
-                        "startDate", from.toString(),
-                        "endDate", to.toString()
-                ),
-                traceId
-        ).block(requestTimeout);
+        log.info("Attempting to confirm availability with Hotel Service: bookingId={}, attempt", booking.getId());
+
+        ConfirmAvailabilityRequestDto request = new ConfirmAvailabilityRequestDto(
+                booking.getRequestId(),
+                booking.getStartDate(),
+                booking.getEndDate()
+        );
+
+        hotelClient.confirmAvailability(booking.getRoomId(), request);
     }
 
-    private void confirmRoom(Long roomId, String requestId, String traceId) {
-        invokeHotel(
-                "/rooms/" + roomId + "/confirm",
-                Map.of("requestId", requestId),
-                traceId
-        ).block(requestTimeout);
-    }
-
-    private void releaseRoomQuietly(Long roomId, String requestId, String traceId) {
-        try {
-            invokeHotel(
-                    "/rooms/" + roomId + "/release",
-                    Map.of("requestId", requestId),
-                    traceId
-            ).block(requestTimeout);
-        } catch (Exception ignored) {
-        }
-    }
-
-    private Mono<String> invokeHotel(
-            String endpoint,
-            Map<String, String> body,
-            String traceId
-    ) {
-        return hotelClient.post()
-                .uri(endpoint)
-                .contentType(MediaType.APPLICATION_JSON)
-                .header("X-Correlation-Id", traceId)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(String.class)
-                .timeout(requestTimeout)
-                .retryWhen(
-                        Retry.backoff(maxRetries, Duration.ofMillis(250))
-                                .maxBackoff(Duration.ofSeconds(2))
-                );
-    }
-
-    private Booking initializeBooking(
-            Long userId,
-            Long roomId,
-            LocalDate from,
-            LocalDate to,
-            String requestId,
-            String traceId
-    ) {
-        Booking booking = new Booking();
-        booking.setUserId(userId);
-        booking.setRoomId(roomId);
-        booking.setStartDate(from);
-        booking.setEndDate(to);
-        booking.setRequestId(requestId);
-        booking.setCorrelationId(traceId);
-        booking.setStatus(Booking.Status.PENDING);
-        booking.setCreatedAt(OffsetDateTime.now());
-        return booking;
+    private void releaseRoom(Long roomId, String requestId) {
+        hotelClient.releaseRoom(roomId, requestId);
     }
 }
 
