@@ -4,31 +4,39 @@
 .mvn/wrapper/maven-wrapper.properties
 .mvn/wrapper/MavenWrapperDownloader.java
 
-# IDEs
+### IntelliJ IDEA ###
+.idea/modules.xml
+.idea/jarRepositories.xml
+.idea/compiler.xml
+.idea/libraries/
+*.iws
 *.iml
-.idea/
-.project
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### Eclipse ###
+.apt_generated
 .classpath
-.settings/
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
 .vscode/
 
-# OS
+### Mac OS ###
 .DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-# Java
-*.class
-
-# H2 database files (if any file-based usage appears)
-*.h2.db
-*.mv.db
-
-# Node/npm (if any UI later)
-node_modules/
-
-# Build outputs
-/dist/
-/build/

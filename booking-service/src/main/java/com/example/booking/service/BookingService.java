@@ -2,8 +2,7 @@ package com.example.booking.service;
 
 import com.example.booking.model.Booking;
 import com.example.booking.repository.BookingRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -14,104 +13,162 @@ import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
+@Slf4j
 public class BookingService {
-    private static final Logger log = LoggerFactory.getLogger(BookingService.class);
-    private final BookingRepository bookingRepository;
-    private final WebClient webClient;
-    private final String hotelBaseUrl;
-    private final int retries;
-    private final Duration timeout;
+    private final BookingRepository repository;
+    private final WebClient hotelClient;
+    private final Duration requestTimeout;
+    private final int maxRetries;
 
     public BookingService(
-            BookingRepository bookingRepository,
-            WebClient.Builder builder,
-            @Value("${hotel.base-url}") String hotelBaseUrl,
-            @Value("${hotel.timeout-ms}") int timeoutMs,
+            BookingRepository repository,
+            WebClient.Builder clientBuilder,
+            @Value("${hotel.base-url}") String baseUrl,
+            @Value("${hotel.timeout-ms}") long timeoutMs,
             @Value("${hotel.retries}") int retries
     ) {
-        this.bookingRepository = bookingRepository;
-        this.webClient = builder.baseUrl(hotelBaseUrl).build();
-        this.hotelBaseUrl = hotelBaseUrl;
-        this.retries = retries;
-        this.timeout = Duration.ofMillis(timeoutMs);
+        this.repository = repository;
+        this.hotelClient = clientBuilder.baseUrl(baseUrl).build();
+        this.requestTimeout = Duration.ofMillis(timeoutMs);
+        this.maxRetries = retries;
     }
 
     @Transactional
-    public Booking createBooking(Long userId, Long roomId, LocalDate start, LocalDate end, String requestId) {
-        String correlationId = UUID.randomUUID().toString();
-        // Идемпотентность: если запрос с таким requestId уже обработан — возвращаем существующую запись
-        Booking existing = bookingRepository.findByRequestId(requestId).orElse(null);
-        if (existing != null) {
-            return existing;
+    public Booking create(
+            Long userId,
+            Long roomId,
+            LocalDate from,
+            LocalDate to,
+            String externalRequestId
+    ) {
+
+        Optional<Booking> cached = repository.findByRequestId(externalRequestId);
+        if (cached.isPresent()) {
+            return cached.get();
         }
-        Booking booking = new Booking();
-        booking.setRequestId(requestId);
-        booking.setUserId(userId);
-        booking.setRoomId(roomId);
-        booking.setStartDate(start);
-        booking.setEndDate(end);
-        booking.setStatus(Booking.Status.PENDING);
-        booking.setCorrelationId(correlationId);
-        booking.setCreatedAt(java.time.OffsetDateTime.now());
-        booking = bookingRepository.save(booking);
 
-        log.info("[{}] Booking PENDING created", correlationId);
+        String traceId = UUID.randomUUID().toString();
 
-        Map<String, String> payload = Map.of(
-                "requestId", requestId,
-                "startDate", start.toString(),
-                "endDate", end.toString()
+        Booking booking = initializeBooking(
+                userId, roomId, from, to, externalRequestId, traceId
         );
 
+        repository.save(booking);
+        log.info("[{}] Reservation created with PENDING status", traceId);
+
         try {
-            // Удержание слота (hold)
-            callHotel("/rooms/" + roomId + "/hold", payload, correlationId).block(timeout);
-            // Подтверждение (confirm)
-            callHotel("/rooms/" + roomId + "/confirm", Map.of("requestId", requestId), correlationId).block(timeout);
+            holdRoom(roomId, externalRequestId, from, to, traceId);
+            confirmRoom(roomId, externalRequestId, traceId);
+
             booking.setStatus(Booking.Status.CONFIRMED);
-            bookingRepository.save(booking);
-            log.info("[{}] Booking CONFIRMED", correlationId);
-        } catch (Exception e) {
-            log.warn("[{}] Booking flow failed: {}", correlationId, e.toString());
-            // Компенсация (release) при ошибке
-            try { callHotel("/rooms/" + roomId + "/release", Map.of("requestId", requestId), correlationId).block(timeout); } catch (Exception ignored) {}
+            repository.save(booking);
+            log.info("[{}] Reservation CONFIRMED", traceId);
+
+        } catch (Exception ex) {
+            log.warn("[{}] Reservation failed: {}", traceId, ex.getMessage());
+
+            releaseRoomQuietly(roomId, externalRequestId, traceId);
+
             booking.setStatus(Booking.Status.CANCELLED);
-            bookingRepository.save(booking);
-            log.info("[{}] Booking CANCELLED and compensated", correlationId);
+            repository.save(booking);
+            log.info("[{}] Reservation CANCELLED", traceId);
         }
 
         return booking;
     }
 
-    private Mono<String> callHotel(String path, Map<String, String> payload, String correlationId) {
-        return webClient.post()
-                .uri(path)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(payload)
-                .header("X-Correlation-Id", correlationId)
-                .retrieve()
-                .bodyToMono(String.class)
-                .timeout(timeout)
-                .retryWhen(Retry.backoff(retries, Duration.ofMillis(300)).maxBackoff(Duration.ofSeconds(2)));
+    @Transactional(readOnly = true)
+    public Booking getBooking(Long id, String username) {
+        Booking booking = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Booking not found"));
+
+        if (!booking.getUser().getUsername().equals(username)) {
+            throw new RuntimeException("Access denied");
+        }
+
+        return booking;
     }
 
-    // Подсказки: получить список комнат из Hotel Service и отсортировать
-    public record RoomView(Long id, String number, long timesBooked) {}
+    private void holdRoom(
+            Long roomId,
+            String requestId,
+            LocalDate from,
+            LocalDate to,
+            String traceId
+    ) {
+        invokeHotel(
+                "/rooms/" + roomId + "/hold",
+                Map.of(
+                        "requestId", requestId,
+                        "startDate", from.toString(),
+                        "endDate", to.toString()
+                ),
+                traceId
+        ).block(requestTimeout);
+    }
 
-    public Mono<java.util.List<RoomView>> getRoomSuggestions() {
-        return webClient.get()
-                .uri("/hotels/rooms")
+    private void confirmRoom(Long roomId, String requestId, String traceId) {
+        invokeHotel(
+                "/rooms/" + roomId + "/confirm",
+                Map.of("requestId", requestId),
+                traceId
+        ).block(requestTimeout);
+    }
+
+    private void releaseRoomQuietly(Long roomId, String requestId, String traceId) {
+        try {
+            invokeHotel(
+                    "/rooms/" + roomId + "/release",
+                    Map.of("requestId", requestId),
+                    traceId
+            ).block(requestTimeout);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private Mono<String> invokeHotel(
+            String endpoint,
+            Map<String, String> body,
+            String traceId
+    ) {
+        return hotelClient.post()
+                .uri(endpoint)
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Correlation-Id", traceId)
+                .bodyValue(body)
                 .retrieve()
-                .bodyToFlux(RoomView.class)
-                .collectList()
-                .map(list -> list.stream()
-                        .sorted(java.util.Comparator.comparingLong(RoomView::timesBooked)
-                                .thenComparing(RoomView::id))
-                        .toList());
+                .bodyToMono(String.class)
+                .timeout(requestTimeout)
+                .retryWhen(
+                        Retry.backoff(maxRetries, Duration.ofMillis(250))
+                                .maxBackoff(Duration.ofSeconds(2))
+                );
+    }
+
+    private Booking initializeBooking(
+            Long userId,
+            Long roomId,
+            LocalDate from,
+            LocalDate to,
+            String requestId,
+            String traceId
+    ) {
+        Booking booking = new Booking();
+        booking.setUserId(userId);
+        booking.setRoomId(roomId);
+        booking.setStartDate(from);
+        booking.setEndDate(to);
+        booking.setRequestId(requestId);
+        booking.setCorrelationId(traceId);
+        booking.setStatus(Booking.Status.PENDING);
+        booking.setCreatedAt(OffsetDateTime.now());
+        return booking;
     }
 }
 
